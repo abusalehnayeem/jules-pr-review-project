@@ -54,5 +54,32 @@ namespace DevInsightCli.Services
             // Assuming the result is of a type that can be converted to string, e.g., FunctionResult.
             return result.ToString();
         }
+
+        // Protected virtual method for easier mocking in tests
+        protected virtual async Task<Microsoft.SemanticKernel.FunctionResult> InvokeKernelPromptAsync(string prompt)
+        {
+            return await _kernel.InvokePromptAsync(prompt);
+        }
+
+        public async Task<string> ReviewCodeAsync(string codeSnippet)
+        {
+            var prompt = $@"Please act as a code reviewer for the following code snippet. Provide feedback on potential bugs, areas for improvement, adherence to best practices, and code style.
+
+```csharp
+{codeSnippet}
+```
+
+Your review should include:
+1.  **Overall Impression:** A brief summary of the code's quality.
+2.  **Potential Bugs:** Any logical errors or edge cases that might lead to issues.
+3.  **Suggestions for Improvement:** Recommendations for making the code more efficient, readable, or maintainable.
+4.  **Best Practices:** Comments on adherence to common coding principles (e.g., DRY, SOLID).
+5.  **Code Style:** Observations on formatting, naming conventions, etc.
+
+Provide a concise and actionable review.";
+
+            var result = await InvokeKernelPromptAsync(prompt); // Use the virtual method
+            return result.ToString();
+        }
     }
 }
