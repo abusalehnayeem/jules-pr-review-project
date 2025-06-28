@@ -6,19 +6,40 @@ namespace DevInsightCli.Services
         public string Id { get; set; }
         public string Name { get; set; }
         public string Specialization { get; set; } // e.g., "CodeReview", "SecurityAnalysis"
+        private readonly LlmService? _llmService; // Nullable, as not all agents might use it
 
-        public Agent(string id, string name, string specialization)
+        // Constructor updated to accept LlmService, making it optional
+        public Agent(string id, string name, string specialization, LlmService? llmService = null)
         {
             Id = id;
             Name = name;
             Specialization = specialization;
+            _llmService = llmService;
         }
 
         public async Task<string> PerformTaskAsync(string input)
         {
-            // Simulate agent performing a task
-            await Task.Delay(100);
-            return $"Agent {Name} ({Specialization}) processed input: {input.Substring(0, Math.Min(input.Length, 20))}...";
+            if (Name == "CodeReviewer" && _llmService != null)
+            {
+                // Use LlmService for the CodeReviewer agent
+                // This prompt is specific to the agent's task.
+                string prompt = $"As a CodeReviewer agent, provide a concise code review for the following input. Focus on potential bugs, style issues, or areas for improvement:\n\nInput:\n```\n{input}\n```\n\nReview Comments:";
+                try
+                {
+                    var reviewComment = await _llmService.AnalyzeCodeAsync(prompt);
+                    return $"Agent {Name} ({Specialization}) review:\n{reviewComment}";
+                }
+                catch (Exception ex)
+                {
+                    return $"Agent {Name} ({Specialization}) encountered an error during LLM analysis: {ex.Message}";
+                }
+            }
+            else
+            {
+                // Simulate other agents performing a task or if LlmService is not available
+                await Task.Delay(50); // Shorter delay for non-LLM tasks
+                return $"Agent {Name} ({Specialization}) processed input (simulated): {input.Substring(0, Math.Min(input.Length, 30))}...";
+            }
         }
     }
 
@@ -32,9 +53,10 @@ namespace DevInsightCli.Services
             _llmService = llmService;
             _agents = new List<Agent>
             {
-                new Agent("agent-001", "CodeReviewer", "Code Review"),
-                new Agent("agent-002", "SecurityScanner", "Security Analysis"),
-                new Agent("agent-003", "DocGenerator", "Documentation")
+                // Pass LlmService to agents that need it
+                new Agent("agent-001", "CodeReviewer", "Code Review", _llmService),
+                new Agent("agent-002", "SecurityScanner", "Security Analysis"), // This agent doesn't use LLM in this example
+                new Agent("agent-003", "DocGenerator", "Documentation")      // This agent doesn't use LLM
             };
         }
 

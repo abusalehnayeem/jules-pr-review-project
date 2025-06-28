@@ -1,9 +1,11 @@
 using System;
 using System.CommandLine;
 using System.CommandLine.Invocation;
+using System.IO; // Required for Path.Combine
 using System.Threading.Tasks;
 using DevInsightCli.Services;
 using DevInsightCli.Data;
+using Microsoft.Extensions.Configuration; // Required for IConfiguration
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.EntityFrameworkCore;
 
@@ -13,7 +15,13 @@ namespace DevInsightCli
     {
         static async Task<int> Main(string[] args)
         {
-            var serviceProvider = ConfigureServices();
+            // Build configuration
+            var configuration = new ConfigurationBuilder()
+                .SetBasePath(Directory.GetCurrentDirectory()) // Ensures appsettings.json is found
+                .AddJsonFile("appsettings.json", optional: false, reloadOnChange: true)
+                .Build();
+
+            var serviceProvider = ConfigureServices(configuration);
 
             var rootCommand = new RootCommand("DevInsight CLI - A tool for development insights.");
 
@@ -34,13 +42,10 @@ namespace DevInsightCli
                 var prUrl = context.ParseResult.GetValueForArgument(prUrlArgument);
                 Console.WriteLine($"Analyzing PR: {prUrl}");
 
-                // Basic GitHubService usage (will be expanded later)
-                // For now, directly instantiating. Will move to DI for services that need it.
                 var githubService = serviceProvider.GetRequiredService<GitHubService>();
                 var prDetails = await githubService.GetPrDetailsAsync(prUrl);
                 Console.WriteLine(prDetails);
 
-                // Example of using WorkflowService (which uses DbContext via DI)
                 var workflowService = serviceProvider.GetRequiredService<WorkflowService>();
                 var workflow = await workflowService.CreateWorkflowAsync($"Analyze PR: {prUrl}");
                 Console.WriteLine($"Created workflow ID: {workflow.Id} with name: {workflow.Name}");
@@ -48,24 +53,66 @@ namespace DevInsightCli
                 var retrievedWorkflow = await workflowService.GetWorkflowAsync(workflow.Id);
                 Console.WriteLine($"Workflow {retrievedWorkflow?.Id} current step: {retrievedWorkflow?.CurrentStep}");
 
+                // Example of using LlmService directly
+                Console.WriteLine("\n--- Direct LLM Analysis ---");
+                try
+                {
+                    var llmService = serviceProvider.GetRequiredService<LlmService>();
+                    var analysis = await llmService.AnalyzeCodeAsync($"Pull Request Details for direct analysis:\n{prDetails}");
+                    Console.WriteLine($"LLM Analysis Result:\n{analysis}");
+                }
+                catch (Exception ex)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"Error during direct LLM analysis: {ex.Message}");
+                    Console.ResetColor();
+                    Console.WriteLine("Ensure Ollama is running and the model specified in appsettings.json is available.");
+                }
+
+                // Example of using AgentService for coordinated analysis
+                Console.WriteLine("\n--- Agent-Based Analysis ---");
+                try
+                {
+                    var agentService = serviceProvider.GetRequiredService<AgentService>();
+                    // Use PR details as input for agent coordination
+                    var agentAnalysisResults = await agentService.CoordinateAnalysisAsync(prDetails);
+                    Console.WriteLine("Coordinated Agent Analysis Results:");
+                    foreach (var result in agentAnalysisResults)
+                    {
+                        Console.WriteLine($"- {result.Key}: {result.Value}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.WriteLine($"Error during agent-based analysis: {ex.Message}");
+                    Console.ResetColor();
+                }
+
             }, prUrlArgument);
 
             return await rootCommand.InvokeAsync(args);
         }
 
-        private static ServiceProvider ConfigureServices()
+        private static ServiceProvider ConfigureServices(IConfiguration configuration)
         {
             var services = new ServiceCollection();
 
+            // Register IConfiguration
+            services.AddSingleton(configuration);
+
             // Configure DbContext
+            // Read connection string from configuration if available, otherwise default.
+            var connectionString = configuration.GetConnectionString("DefaultConnection") ?? "Data Source=devinsight.db";
             services.AddDbContext<DevInsightDbContext>(options =>
-                options.UseSqlite("Data Source=devinsight.db")); // Connection string for SQLite
+                options.UseSqlite(connectionString));
 
             // Register services
-            services.AddTransient<GitHubService>(); // GitHubService can be transient for now
-            services.AddTransient<LlmService>();     // LlmService can be transient
-            services.AddTransient<WorkflowService>(); // WorkflowService depends on DbContext
-            services.AddTransient<AgentService>();   // AgentService depends on LlmService (will handle later if direct DI needed)
+            services.AddTransient<GitHubService>();
+            // LlmService now requires IConfiguration, which is automatically injected by DI
+            services.AddTransient<LlmService>();
+            services.AddTransient<WorkflowService>();
+            services.AddTransient<AgentService>();
 
             // Ensure migrations can run (this is a development-time concern, but good to have context)
             // In a real app, you might run migrations at startup or via a script.
